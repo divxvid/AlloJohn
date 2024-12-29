@@ -1,12 +1,19 @@
 defmodule AlloJohn.AudioPlayerConsumer do
   use Nostrum.Consumer
 
+  alias Nostrum.Struct.Component.ActionRow
+  alias Nostrum.Struct.Component.Button
   alias AlloJohn.SongQueue
   alias Nostrum.Api
   alias Nostrum.Cache.GuildCache
   alias Nostrum.Voice
 
   require Logger
+
+  @pause_emoji "⏸️"
+  @resume_emoji "▶️"
+  @stop_emoji "⏹️"
+  @next_emoji "➡️"
 
   # Compile-time helper for defining Discord Application Command options
   opt = fn type, name, desc, opts ->
@@ -66,10 +73,13 @@ defmodule AlloJohn.AudioPlayerConsumer do
     message =
       case do_command(interaction) do
         {:msg, msg} -> msg
-        _ -> ":white_check_mark:"
+        _ -> ""
       end
 
-    Api.create_interaction_response(interaction, %{type: 4, data: %{content: message}})
+    Api.create_interaction_response!(
+      interaction,
+      create_response(message)
+    )
   end
 
   def handle_event({:VOICE_SPEAKING_UPDATE, payload, _ws_state}) do
@@ -92,8 +102,7 @@ defmodule AlloJohn.AudioPlayerConsumer do
 
         # Registering a separate song queue genserver with guild id as the name
         # into the registry
-        name = {:via, Registry, {AlloJohn.SongQueueRegistry, guild_id}}
-        AlloJohn.SongQueue.start_link(guild_id, name: name)
+        AlloJohn.SongQueue.start_link(guild_id, name: via(guild_id))
         Logger.debug("Started a SongQueue Genserver for Guild: #{guild_id}")
     end
   end
@@ -102,16 +111,13 @@ defmodule AlloJohn.AudioPlayerConsumer do
     Voice.leave_channel(guild_id)
 
     # stop the corresponding genserver with this guild id
-    [{pid, _}] = Registry.lookup(AlloJohn.SongQueueRegistry, guild_id)
-    AlloJohn.SongQueue.stop(pid)
+    AlloJohn.SongQueue.stop(via(guild_id))
     Logger.debug("Stopped a SongQueue Genserver for Guild: #{guild_id}")
     {:msg, ":wave:"}
   end
 
   def do_command(%{guild_id: guild_id, data: %{name: "show-queue"}}) do
-    [{pid, _}] = Registry.lookup(AlloJohn.SongQueueRegistry, guild_id)
-    queue = AlloJohn.SongQueue.get_queue(pid)
-    Logger.debug(queue)
+    queue = AlloJohn.SongQueue.get_queue(via(guild_id))
     queue_str = Enum.join(queue, "\n")
     {:msg, "Queue:\n#{queue_str}"}
   end
@@ -121,8 +127,7 @@ defmodule AlloJohn.AudioPlayerConsumer do
   def do_command(%{guild_id: guild_id, data: %{name: "resume"}}), do: Voice.resume(guild_id)
 
   def do_command(%{guild_id: guild_id, data: %{name: "stop"}}) do
-    [{pid, _}] = Registry.lookup(AlloJohn.SongQueueRegistry, guild_id)
-    SongQueue.clear_queue(pid)
+    SongQueue.clear_queue(via(guild_id))
     Voice.stop(guild_id)
   end
 
@@ -133,9 +138,8 @@ defmodule AlloJohn.AudioPlayerConsumer do
       Voice.stop(guild_id)
 
       [%{name: "url", options: [%{value: url}]}] = options
-      [{pid, _}] = Registry.lookup(AlloJohn.SongQueueRegistry, guild_id)
-      SongQueue.clear_queue(pid)
-      SongQueue.add_song(pid, url)
+      SongQueue.clear_queue(via(guild_id))
+      SongQueue.add_song(via(guild_id), url)
       # case options do
       #   [%{name: "file", options: [%{value: url}]}] -> Voice.play(guild_id, url, :url)
       #   [%{name: "url", options: [%{value: url}]}] -> Voice.play(guild_id, url, :ytdl)
@@ -147,7 +151,46 @@ defmodule AlloJohn.AudioPlayerConsumer do
 
   def do_command(%{guild_id: guild_id, data: %{name: "queue", options: options}}) do
     [%{name: "url", options: [%{value: url}]}] = options
-    [{pid, _}] = Registry.lookup(AlloJohn.SongQueueRegistry, guild_id)
-    SongQueue.add_song(pid, url)
+    SongQueue.add_song(via(guild_id), url)
+  end
+
+  def do_command(%{guild_id: guild_id, data: %{custom_id: "pause-clicked"}}) do
+    Voice.pause(guild_id)
+  end
+
+  def do_command(%{guild_id: guild_id, data: %{custom_id: "resume-clicked"}}) do
+    Voice.resume(guild_id)
+  end
+
+  def do_command(%{guild_id: guild_id, data: %{custom_id: "stop-clicked"}}) do
+    SongQueue.clear_queue(via(guild_id))
+    Voice.stop(guild_id)
+  end
+
+  def do_command(%{guild_id: guild_id, data: %{custom_id: "next-clicked"}}) do
+    Voice.stop(guild_id)
+  end
+
+  defp create_response(message) do
+    buttons = [
+      Button.interaction_button(@pause_emoji, "pause-clicked"),
+      Button.interaction_button(@resume_emoji, "resume-clicked"),
+      Button.interaction_button(@stop_emoji, "stop-clicked"),
+      Button.interaction_button(@next_emoji, "next-clicked")
+    ]
+
+    action_row = ActionRow.action_row(buttons)
+
+    %{
+      type: 4,
+      data: %{
+        content: message,
+        components: [action_row]
+      }
+    }
+  end
+
+  defp via(guild_id) do
+    {:via, Registry, {AlloJohn.SongQueueRegistry, guild_id}}
   end
 end

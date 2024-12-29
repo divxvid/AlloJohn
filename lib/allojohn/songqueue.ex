@@ -57,17 +57,6 @@ defmodule AlloJohn.SongQueue do
   end
 
   @impl true
-  def handle_call(:next_song, _from, {queue, guild_id}) do
-    current_song = :queue.head(queue)
-
-    queue = :queue.drop(queue)
-    queue = :queue.in(current_song, queue)
-
-    next_song = :queue.head(queue)
-    {:reply, next_song, {queue, guild_id}}
-  end
-
-  @impl true
   def handle_info(:poll_voice, {queue, guild_id}) do
     voice = Voice.get_voice(guild_id)
     Process.send_after(self(), :poll_voice, 1000)
