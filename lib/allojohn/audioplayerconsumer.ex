@@ -118,8 +118,8 @@ defmodule AlloJohn.AudioPlayerConsumer do
 
   def do_command(%{guild_id: guild_id, data: %{name: "show-queue"}}) do
     queue = AlloJohn.SongQueue.get_queue(via(guild_id))
-    queue_str = Enum.join(queue, "\n")
-    {:msg, "Queue:\n#{queue_str}"}
+    queue_str = Enum.join(queue, "\n- ")
+    {:msg, "Queue:\n- #{queue_str}"}
   end
 
   def do_command(%{guild_id: guild_id, data: %{name: "pause"}}), do: Voice.pause(guild_id)
