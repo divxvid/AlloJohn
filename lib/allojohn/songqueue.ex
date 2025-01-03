@@ -72,6 +72,7 @@ defmodule AlloJohn.SongQueue do
           queue = :queue.in(current_song, queue)
 
           next_song_url = :queue.head(queue)
+          next_song_url = augment_url(next_song_url)
           Voice.play(guild_id, next_song_url, :ytdl)
           {:noreply, {queue, guild_id}}
         else
@@ -88,6 +89,17 @@ defmodule AlloJohn.SongQueue do
       #
       true ->
         {:noreply, {queue, guild_id}}
+    end
+  end
+
+  defp augment_url(url) do
+    use_cookies = Application.get_env(:allojohn, :use_cookies) == "true"
+
+    if use_cookies do
+      cookie_path = Application.get_env(:allojohn, :cookies)
+      "--cookies #{cookie_path} #{url}"
+    else
+      url
     end
   end
 end
