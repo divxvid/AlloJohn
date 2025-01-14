@@ -1,5 +1,7 @@
 defmodule AlloJohn.SongQueue do
   alias Nostrum.Voice
+  alias Utils.Queue
+
   require Logger
   use GenServer
   # API functions
@@ -28,31 +30,30 @@ defmodule AlloJohn.SongQueue do
   # callbacks
   @impl true
   def init(guild_id) do
-    initial_state = {:queue.new(), guild_id}
+    initial_state = {Queue.new(), guild_id}
     {:ok, initial_state}
   end
 
   @impl true
   def handle_cast({:push, song_url}, {queue, guild_id}) do
-    queue = :queue.in(song_url, queue)
+    queue = Queue.enqueue(queue, song_url)
     {:noreply, {queue, guild_id}}
   end
 
   @impl true
   def handle_cast(:clear_queue, {_, guild_id}) do
-    queue = :queue.new()
-    {:noreply, {queue, guild_id}}
+    {:noreply, {Queue.new(), guild_id}}
   end
 
   @impl true
   def handle_call(:current_song, _from, {queue, guild_id}) do
-    current_song = :queue.head(queue)
+    current_song = Queue.head(queue)
     {:reply, current_song, {queue, guild_id}}
   end
 
   @impl true
   def handle_call(:get_queue, _from, {queue, guild_id}) do
-    queue_list = :queue.to_list(queue)
+    queue_list = Queue.to_list(queue)
     {:reply, queue_list, {queue, guild_id}}
   end
 
@@ -65,13 +66,10 @@ defmodule AlloJohn.SongQueue do
       # if this is not defined, we are sure that nothing is getting played
       # So, we do play the next song from the queue if it has something
       not is_pid(voice.ffmpeg_proc) || not Process.alive?(voice.ffmpeg_proc) ->
-        unless :queue.is_empty(queue) do
-          current_song = :queue.head(queue)
+        unless Queue.empty?(queue) do
+          {_current_song, queue} = Queue.dequeue(queue)
 
-          queue = :queue.drop(queue)
-          queue = :queue.in(current_song, queue)
-
-          next_song_url = :queue.head(queue)
+          next_song_url = Queue.head(queue)
           next_song_url = augment_url(next_song_url)
           Logger.debug("Augmented URL: #{next_song_url}")
           Voice.play(guild_id, next_song_url, :ytdl)
